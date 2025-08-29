@@ -1,3 +1,4 @@
+// routes/authRoutes.js
 const express = require('express');
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
@@ -39,6 +40,7 @@ router.post('/register', async (req, res) => {
       });
     }
   } catch (error) {
+    console.error('Register error:', error);
     res.status(500).json({ message: 'Server error: ' + error.message });
   }
 });
@@ -65,6 +67,7 @@ router.post('/login', async (req, res) => {
       res.status(401).json({ message: 'Invalid email or password' });
     }
   } catch (error) {
+    console.error('Login error:', error);
     res.status(500).json({ message: 'Server error: ' + error.message });
   }
 });
@@ -73,7 +76,41 @@ router.post('/login', async (req, res) => {
 // @route   GET /api/auth/profile
 // @access  Private
 router.get('/profile', protect, async (req, res) => {
-  res.json(req.user); // req.user تم تعيينه في middleware الحماية
+  try {
+    res.json({
+      _id: req.user._id,
+      name: req.user.name,
+      email: req.user.email,
+      role: req.user.role
+    });
+  } catch (error) {
+    console.error('Profile error:', error);
+    res.status(500).json({ message: 'Server error: ' + error.message });
+  }
+});
+
+// @desc    Get all users (For testing)
+// @route   GET /api/auth/users
+// @access  Public
+router.get('/users', async (req, res) => {
+  try {
+    const users = await User.find().select('-password');
+    res.json(users);
+  } catch (error) {
+    console.error('Get users error:', error);
+    res.status(500).json({ message: 'Server error: ' + error.message });
+  }
+});
+
+// @desc    Health check endpoint
+// @route   GET /api/auth/health
+// @access  Public
+router.get('/health', (req, res) => {
+  res.json({ 
+    status: 'OK', 
+    message: 'Auth service is running',
+    timestamp: new Date().toISOString()
+  });
 });
 
 module.exports = router;

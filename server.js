@@ -1,42 +1,40 @@
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
-const path = require('path');
 require('dotenv').config();
 
-// استيراد مسارات API
-const authRoutes = require('./routes/auth');
-const eventRoutes = require('./routes/events');
-const ticketRoutes = require('./routes/tickets');
-const analyticsRoutes = require('./routes/analytics');
+// استيراد المسارات المتاحة فقط
+const authRoutes = require('./routes/authRoutes');
 
 const app = express();
 
 // Middleware
 app.use(cors({
-  origin: process.env.CLIENT_URL || 'http://localhost:3000',
-  credentials: true
+  origin: [
+    'http://localhost:3000',
+    'https://imaginative-torrone-ce6869.netlify.app',
+    'https://*.netlify.app'
+  ],
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS']
 }));
 
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// MongoDB Connection - استخدم السحابة دائماً
-mongoose.connect(process.env.MONGODB_URI, {
+// MongoDB Connection
+mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/eventx', {
   useNewUrlParser: true,
   useUnifiedTopology: true,
 })
-.then(() => console.log('✅ MongoDB Atlas Connected Successfully'))
+.then(() => console.log('✅ MongoDB Connected Successfully'))
 .catch((err) => {
   console.error('❌ MongoDB Connection Error:', err.message);
   process.exit(1);
 });
 
-// Routes
+// Routes - فقط المسارات الموجودة
 app.use('/api/auth', authRoutes);
-app.use('/api/events', eventRoutes);
-app.use('/api/tickets', ticketRoutes);
-app.use('/api/analytics', analyticsRoutes);
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {
@@ -73,9 +71,6 @@ app.use('*', (req, res) => {
     path: req.originalUrl,
     availableEndpoints: [
       '/api/auth',
-      '/api/events', 
-      '/api/tickets',
-      '/api/analytics',
       '/api/health'
     ]
   });

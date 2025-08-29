@@ -1,5 +1,6 @@
 {
   "name": "eventx-backend",
+   "homepage": "https://imaginative-torrone-ce6869.netlify.app",
   "version": "1.0.0",
   "description": "Backend for EventX Studio - Event Management System",
   "main": "server.js",
@@ -26,4 +27,5 @@
   "engines": {
     "node": ">=18.0.0"
   }
+
 }
