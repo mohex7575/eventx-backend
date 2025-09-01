@@ -17,12 +17,15 @@ router.get('/dashboard', protect, async (req, res) => {
     // الإحصائيات الأساسية
     const totalEvents = await Event.countDocuments();
     const totalTickets = await Ticket.countDocuments();
-    const totalRevenue = await Ticket.aggregate([
+    const totalRevenueAgg = await Ticket.aggregate([
       { $match: { status: { $ne: 'cancelled' } } },
       { $group: { _id: null, total: { $sum: '$price' } } }
     ]);
-    
+    const totalRevenue = totalRevenueAgg[0]?.total || 0;
+
     const totalUsers = await User.countDocuments();
+    const activeEvents = await Event.countDocuments({ date: { $gte: new Date() } });
+
     const recentTickets = await Ticket.find()
       .populate('event', 'title')
       .populate('user', 'name email')
@@ -61,9 +64,7 @@ router.get('/dashboard', protect, async (req, res) => {
         $project: {
           title: 1,
           ticketCount: { $size: '$tickets' },
-          revenue: {
-            $sum: '$tickets.price'
-          },
+          revenue: { $sum: '$tickets.price' },
           date: 1
         }
       },
@@ -75,9 +76,9 @@ router.get('/dashboard', protect, async (req, res) => {
       overview: {
         totalEvents,
         totalTickets,
-        totalRevenue: totalRevenue[0]?.total || 0,
+        totalRevenue,
         totalUsers,
-        activeEvents: await Event.countDocuments({ date: { $gte: new Date() } })
+        activeEvents
       },
       monthlyRevenue,
       topEvents: eventStats,
@@ -147,9 +148,7 @@ router.get('/export/:eventId?', protect, async (req, res) => {
     const { eventId } = req.params;
     let query = {};
     
-    if (eventId) {
-      query.event = eventId;
-    }
+    if (eventId) query.event = eventId;
 
     const tickets = await Ticket.find(query)
       .populate('event', 'title date')
