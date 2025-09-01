@@ -1,49 +1,135 @@
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
+const rateLimit = require('express-rate-limit');
+const helmet = require('helmet');
+const morgan = require('morgan');
 require('dotenv').config();
 
-// استيراد المسارات المتاحة فقط
+// استيراد جميع المسارات
 const authRoutes = require('./routes/authRoutes');
+const eventRoutes = require('./routes/eventRoutes');
+const ticketRoutes = require('./routes/ticketRoutes');
+const analyticsRoutes = require('./routes/analyticsRoutes');
 
 const app = express();
 
-// Middleware
+// Middleware الأمان
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+      fontSrc: ["'self'", "https://fonts.gstatic.com"],
+      imgSrc: ["'self'", "data:", "https:"],
+      scriptSrc: ["'self'", "'unsafe-inline'"]
+    }
+  },
+  crossOriginEmbedderPolicy: false
+}));
+
+// Rate Limiting
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 دقيقة
+  max: process.env.NODE_ENV === 'production' ? 100 : 1000, // 100 طلب في الإنتاج، 1000 في التطوير
+  message: {
+    error: 'Too many requests from this IP, please try again later.'
+  },
+  standardHeaders: true,
+  legacyHeaders: false
+});
+app.use('/api/', limiter);
+
+// CORS Configuration
 app.use(cors({
   origin: [
     'http://localhost:3000',
+    'http://localhost:3001',
     'https://imaginative-torrone-ce6869.netlify.app',
     'https://*.netlify.app'
   ],
   credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS']
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
 }));
 
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+// Logging
+app.use(morgan(process.env.NODE_ENV === 'production' ? 'combined' : 'dev'));
 
-// MongoDB Connection
-mongoose.connect(process.env.MONGODB_URI || 'mongodb+srv://eventx_admin:fifa.197575@cluster0.gwpnzbv.mongodb.net/eventx?retryWrites=true&w=majority', {
+// Body parsing middleware
+app.use(express.json({ 
+  limit: '10mb',
+  verify: (req, res, buf) => {
+    req.rawBody = buf;
+  }
+}));
+app.use(express.urlencoded({ 
+  extended: true, 
+  limit: '10mb' 
+}));
+
+// MongoDB Connection with improved settings
+mongoose.connect(process.env.MONGODB_URI, {
   useNewUrlParser: true,
   useUnifiedTopology: true,
+  retryWrites: true,
+  w: 'majority',
+  authSource: 'admin',
+  serverSelectionTimeoutMS: 5000,
+  socketTimeoutMS: 45000,
+  maxPoolSize: 10,
+  minPoolSize: 5
 })
-.then(() => console.log('✅ MongoDB Connected Successfully'))
+.then(() => {
+  console.log('✅ MongoDB Connected Successfully');
+  console.log(`📊 Database: ${mongoose.connection.name}`);
+  console.log(`👥 Connections: ${mongoose.connection.readyState === 1 ? 'Connected' : 'Disconnected'}`);
+})
 .catch((err) => {
   console.error('❌ MongoDB Connection Error:', err.message);
   process.exit(1);
 });
 
-// Routes - فقط المسارات الموجودة
-app.use('/api/auth', authRoutes);
+// MongoDB connection events
+mongoose.connection.on('connected', () => {
+  console.log('📈 MongoDB connection established');
+});
 
-// Health check endpoint
+mongoose.connection.on('error', (err) => {
+  console.error('❌ MongoDB connection error:', err);
+});
+
+mongoose.connection.on('disconnected', () => {
+  console.log('⚠️ MongoDB connection disconnected');
+});
+
+// Routes
+app.use('/api/auth', authRoutes);
+app.use('/api/events', eventRoutes);
+app.use('/api/tickets', ticketRoutes);
+app.use('/api/analytics', analyticsRoutes);
+
+// Health check endpoint with detailed info
 app.get('/api/health', (req, res) => {
-  res.json({
+  const healthStatus = {
     status: 'OK',
     message: 'EventX Server is running successfully',
     environment: process.env.NODE_ENV || 'development',
-    timestamp: new Date().toISOString()
-  });
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime(),
+    memory: process.memoryUsage(),
+    database: {
+      status: mongoose.connection.readyState === 1 ? 'Connected' : 'Disconnected',
+      name: mongoose.connection.name,
+      host: mongoose.connection.host
+    },
+    system: {
+      platform: process.platform,
+      nodeVersion: process.version,
+      pid: process.pid
+    }
+  };
+  res.json(healthStatus);
 });
 
 // Basic route
@@ -51,45 +137,153 @@ app.get('/', (req, res) => {
   res.json({
     message: '🎉 EventX Studio API is running!',
     version: '1.0.0',
-    docs: '/api/health'
+    documentation: '/api/health',
+    endpoints: {
+      auth: '/api/auth',
+      events: '/api/events',
+      tickets: '/api/tickets',
+      analytics: '/api/analytics'
+    }
+  });
+});
+
+// API documentation route
+app.get('/api/docs', (req, res) => {
+  res.json({
+    name: 'EventX API Documentation',
+    version: '1.0.0',
+    description: 'Comprehensive API for Event Management System',
+    baseURL: process.env.CLIENT_URL || 'http://localhost:5000',
+    endpoints: {
+      auth: {
+        'POST /register': 'Register new user',
+        'POST /login': 'User login',
+        'GET /profile': 'Get user profile',
+        'GET /health': 'Auth service health check'
+      },
+      events: {
+        'GET /': 'Get all events with filtering',
+        'GET /:id': 'Get single event',
+        'POST /': 'Create event (Admin only)',
+        'PUT /:id': 'Update event (Admin only)',
+        'DELETE /:id': 'Delete event (Admin only)',
+        'GET /:id/seats': 'Get event seating',
+        'POST /:id/reserve-seat': 'Reserve seat',
+        'POST /:id/cancel-seat': 'Cancel reservation'
+      },
+      tickets: {
+        'GET /my-tickets': 'Get user tickets',
+        'POST /book': 'Book ticket',
+        'POST /cancel/:ticketId': 'Cancel ticket',
+        'GET /:ticketId': 'Get ticket details',
+        'POST /verify': 'Verify ticket (Admin only)'
+      },
+      analytics: {
+        'GET /dashboard': 'Dashboard statistics (Admin only)',
+        'GET /events/:id': 'Event analytics (Admin only)',
+        'GET /export/:eventId?': 'Export tickets (Admin only)'
+      }
+    }
   });
 });
 
 // Error handling middleware
 app.use((err, req, res, next) => {
-  console.error('Error:', err.message);
-  res.status(500).json({
-    message: 'Something went wrong!',
-    error: process.env.NODE_ENV === 'production' ? {} : err.message
+  console.error('Error Stack:', err.stack);
+  console.error('Error Details:', {
+    message: err.message,
+    url: req.url,
+    method: req.method,
+    ip: req.ip,
+    userAgent: req.get('User-Agent')
   });
+
+  const errorResponse = {
+    message: 'Something went wrong!',
+    errorId: Date.now()
+  };
+
+  // إظهار تفاصيل الخطأ في البيئة التطويرية فقط
+  if (process.env.NODE_ENV !== 'production') {
+    errorResponse.details = err.message;
+    errorResponse.stack = err.stack;
+  }
+
+  res.status(err.status || 500).json(errorResponse);
 });
 
-// 404 handler
+// 404 handler with suggestions
 app.use('*', (req, res) => {
+  const availableEndpoints = [
+    { path: '/api/auth', methods: ['GET', 'POST'] },
+    { path: '/api/events', methods: ['GET', 'POST', 'PUT', 'DELETE'] },
+    { path: '/api/tickets', methods: ['GET', 'POST'] },
+    { path: '/api/analytics', methods: ['GET'] },
+    { path: '/api/health', methods: ['GET'] },
+    { path: '/api/docs', methods: ['GET'] }
+  ];
+
   res.status(404).json({
     message: 'API endpoint not found',
-    path: req.originalUrl,
-    availableEndpoints: [
-      '/api/auth',
-      '/api/health'
-    ]
+    requested: {
+      path: req.originalUrl,
+      method: req.method
+    },
+    availableEndpoints,
+    suggestion: 'Check /api/docs for complete API documentation'
   });
 });
 
 const PORT = process.env.PORT || 5000;
 
-app.listen(PORT, () => {
-  console.log(`🚀 Server is running on port ${PORT}`);
+const server = app.listen(PORT, '0.0.0.0', () => {
+  console.log(`\n🚀 Server is running on port ${PORT}`);
   console.log(`🌐 Environment: ${process.env.NODE_ENV || 'development'}`);
-  console.log(`🔗 Health check: http://localhost:${PORT}/api/health`);
+  console.log(`🔗 Local: http://localhost:${PORT}`);
+  console.log(`📊 Health: http://localhost:${PORT}/api/health`);
+  console.log(`📚 Docs: http://localhost:${PORT}/api/docs`);
+  console.log(`⏰ Started at: ${new Date().toLocaleString()}`);
 });
 
 // Graceful shutdown
-process.on('SIGINT', async () => {
-  console.log('🛑 Shutting down gracefully...');
-  await mongoose.connection.close();
-  console.log('✅ MongoDB connection closed');
-  process.exit(0);
+const gracefulShutdown = async (signal) => {
+  console.log(`\n${signal} received. Starting graceful shutdown...`);
+  
+  // Stop accepting new connections
+  server.close(async () => {
+    console.log('✅ HTTP server closed');
+    
+    // Close MongoDB connection
+    if (mongoose.connection.readyState === 1) {
+      await mongoose.connection.close();
+      console.log('✅ MongoDB connection closed');
+    }
+    
+    console.log('👋 Shutdown complete');
+    process.exit(0);
+  });
+
+  // Force close after 30 seconds
+  setTimeout(() => {
+    console.error('❌ Could not close connections in time, forcefully shutting down');
+    process.exit(1);
+  }, 30000);
+};
+
+// Handle different shutdown signals
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGUSR2', () => gracefulShutdown('SIGUSR2')); // For nodemon
+
+// Handle uncaught exceptions
+process.on('uncaughtException', (error) => {
+  console.error('💥 Uncaught Exception:', error);
+  gracefulShutdown('uncaughtException');
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('💥 Unhandled Rejection at:', promise, 'reason:', reason);
+  gracefulShutdown('unhandledRejection');
 });
 
 module.exports = app;
