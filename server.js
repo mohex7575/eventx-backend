@@ -5,9 +5,9 @@ require('dotenv').config();
 
 // استيراد جميع المسارات
 const authRoutes = require('./routes/authRoutes');
-const eventRoutes = require('./routes/eventRoutes');
-const ticketRoutes = require('./routes/ticketRoutes');
-const analyticsRoutes = require('./routes/analyticsRoutes');
+const eventRoutes = require('./routes/events');
+const ticketRoutes = require('./routes/tickets');
+const analyticsRoutes = require('./routes/analytics');
 
 const app = express();
 
