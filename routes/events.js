@@ -1,6 +1,7 @@
 const express = require('express');
 const { protect } = require('../middleware/authMiddleware');
 const Event = require('../models/Event');
+const QRCode = require('qrcode');
 const router = express.Router();
 
 // @desc    Get all active events with filtering and pagination
@@ -75,6 +76,38 @@ router.get('/:id', async (req, res) => {
     res.status(500).json({ message: 'Server error while fetching event' });
   }
 });
+
+// ------------------ Added QR generation route (supports GET & POST) ------------------
+// @desc    Generate QR code for event
+// @route   GET|POST /api/events/:id/generate-qr
+// @access  Public
+const generateQrHandler = async (req, res) => {
+  try {
+    const event = await Event.findById(req.params.id);
+
+    if (!event) {
+      return res.status(404).json({ message: 'Event not found' });
+    }
+
+    // Prefer existing env names used in your project (CLIENT_URL), fall back to FRONTEND_URL or localhost
+    const frontendUrl = process.env.CLIENT_URL || process.env.FRONTEND_URL || 'http://localhost:3000';
+
+    // QR payload: front-end event page link (you can change to any payload you want)
+    const qrData = `${frontendUrl}/event/${event._id}`;
+
+    // Generate QR as Data URL (base64 PNG)
+    const qrImage = await QRCode.toDataURL(qrData);
+
+    res.json({ qrCode: qrImage, data: qrData });
+  } catch (error) {
+    console.error('QR generation error:', error);
+    res.status(500).json({ message: 'Server error while generating QR code' });
+  }
+};
+
+router.get('/:id/generate-qr', generateQrHandler);
+router.post('/:id/generate-qr', generateQrHandler);
+// ------------------------------------------------------------------------------------
 
 // @desc    Create a new event
 // @route   POST /api/events
