@@ -102,8 +102,9 @@ eventSchema.virtual('isSoldOut').get(function() {
   return this.availableSeats === 0;
 });
 
-// Virtual for formatted date
+// ✅ Virtual for formatted date (آمن ضد null/undefined)
 eventSchema.virtual('formattedDate').get(function() {
+  if (!this.date) return null;
   return this.date.toLocaleDateString('en-US', {
     weekday: 'long',
     year: 'numeric',
