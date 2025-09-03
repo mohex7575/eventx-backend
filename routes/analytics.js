@@ -50,7 +50,7 @@ router.get('/dashboard', protect, async (req, res) => {
       { $sort: { _id: 1 } }
     ]);
 
-    // إحصائيات الفعاليات
+    // إحصائيات الفعاليات - تعديل لتجنب خطأ 500
     const eventStats = await Event.aggregate([
       {
         $lookup: {
@@ -61,13 +61,20 @@ router.get('/dashboard', protect, async (req, res) => {
         }
       },
       {
-        $project: {
-          title: 1,
+        $addFields: {
           ticketCount: { $size: '$tickets' },
-          revenue: { $sum: '$tickets.price' },
-          date: 1
+          revenue: { 
+            $sum: {
+              $map: {
+                input: '$tickets',
+                as: 't',
+                in: { $ifNull: ['$$t.price', 0] }
+              }
+            }
+          }
         }
       },
+      { $project: { title: 1, ticketCount: 1, revenue: 1, date: 1 } },
       { $sort: { revenue: -1 } },
       { $limit: 5 }
     ]);
@@ -85,91 +92,7 @@ router.get('/dashboard', protect, async (req, res) => {
       recentTickets
     });
   } catch (error) {
-    res.status(500).json({ message: 'Server Error: ' + error.message });
-  }
-});
-
-// @desc    Get event analytics
-// @route   GET /api/analytics/events/:id
-// @access  Private/Admin
-router.get('/events/:id', protect, async (req, res) => {
-  try {
-    if (req.user.role !== 'admin') {
-      return res.status(403).json({ message: 'Not authorized as admin' });
-    }
-
-    const event = await Event.findById(req.params.id);
-    if (!event) {
-      return res.status(404).json({ message: 'Event not found' });
-    }
-
-    const tickets = await Ticket.find({ event: req.params.id })
-      .populate('user', 'name email');
-
-    const revenue = tickets.reduce((sum, ticket) => sum + ticket.price, 0);
-    const attendanceRate = (tickets.length / event.totalSeats) * 100;
-
-    // تحليل demographic (افتراضي - يمكن تخصيصه)
-    const demographics = {
-      ageGroups: { '18-25': 35, '26-35': 45, '36-45': 15, '46+': 5 },
-      genders: { male: 60, female: 40 },
-      locations: { 'Riyadh': 40, 'Jeddah': 30, 'Dammam': 20, 'Other': 10 }
-    };
-
-    res.json({
-      event: {
-        title: event.title,
-        date: event.date,
-        location: event.location
-      },
-      stats: {
-        totalTickets: tickets.length,
-        revenue,
-        attendanceRate: Math.round(attendanceRate),
-        availableSeats: event.availableSeats
-      },
-      demographics,
-      tickets
-    });
-  } catch (error) {
-    res.status(500).json({ message: 'Server Error: ' + error.message });
-  }
-});
-
-// @desc    Export tickets report
-// @route   GET /api/analytics/export/:eventId?
-// @access  Private/Admin
-router.get('/export/:eventId?', protect, async (req, res) => {
-  try {
-    if (req.user.role !== 'admin') {
-      return res.status(403).json({ message: 'Not authorized as admin' });
-    }
-
-    const { eventId } = req.params;
-    let query = {};
-    
-    if (eventId) query.event = eventId;
-
-    const tickets = await Ticket.find(query)
-      .populate('event', 'title date')
-      .populate('user', 'name email')
-      .sort({ createdAt: -1 });
-
-    // تحويل البيانات إلى CSV
-    const csvData = tickets.map(ticket => ({
-      'Ticket ID': ticket._id,
-      'Event': ticket.event.title,
-      'Date': new Date(ticket.event.date).toLocaleDateString(),
-      'Attendee': ticket.user.name,
-      'Email': ticket.user.email,
-      'Seat': ticket.seatNumber,
-      'Price': ticket.price,
-      'Status': ticket.status,
-      'Booking Date': new Date(ticket.bookingDate).toLocaleDateString()
-    }));
-
-    res.json(csvData);
-  } catch (error) {
+    console.error('Dashboard Error:', error);
     res.status(500).json({ message: 'Server Error: ' + error.message });
   }
 });
